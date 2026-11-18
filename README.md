@@ -23,7 +23,14 @@ It never places, modifies, or cancels orders.
 Skip the login and you still get the brief and all Telegram signals; only
 the Kite alerts are skipped.
 
-**Telegram commands:** `/levels` resends the levels, `/alerts` resets the Kite
+**Chart pictures:** the bot draws its own Nifty 15m chart with today's levels
+(red = resistance, blue = support, thicker = stronger) and sends it with the
+morning brief, with every breakout/rejection signal (arrow marks the spot), and
+as a 12:30 midday update. Every picture is fresh, so old levels never pile up.
+(Kite doesn't allow bots to draw on its own charts, and the Kite iPad app can't
+show TradingView drawings.)
+
+**Telegram commands:** `/chart` sends the chart now, `/levels` resends the levels, `/alerts` resets the Kite
 alerts around the current price, `/status`, `/login`, `/help`.
 
 GitHub's scheduler can start a few minutes late at busy times, which is why

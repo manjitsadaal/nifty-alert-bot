@@ -15,6 +15,7 @@ from datetime import time
 
 from . import data, telegram
 from .brief import morning_brief
+from .chart import render
 from .config import SETTINGS, STATE_DIR
 from .kite_api import (KiteAlerts, KiteError, get_token, interactive_login, load_token,
                        login_url, login_with_request_token)
@@ -28,7 +29,7 @@ RUNTIME_FILE = STATE_DIR / "runtime.json"
 
 MARKET_OPEN, MARKET_CLOSE = time(9, 15), time(15, 30)
 ALERTS_AT = time(9, 17)
-HELP = ("<b>Commands</b>\n/levels – resend today's levels\n/alerts – reset Kite alerts around current price\n"
+HELP = ("<b>Commands</b>\n/levels – resend today's levels\n/chart – chart with levels now\n/alerts – reset Kite alerts around current price\n"
         "/status – bot status\n/login – get the Kite login link\n/help – this list")
 
 
@@ -70,12 +71,35 @@ def load_zones() -> list[Zone]:
             for z in d.get("zones", [])]
 
 
+def send_chart(title: str, caption: str = "", zones: list[Zone] | None = None,
+               reference: float | None = None, marker: dict | None = None, silent: bool = False) -> None:
+    """Draws the 15m chart with levels and sends it to Telegram. Never raises."""
+    try:
+        if zones is None or reference is None:
+            d = _load(PLAN_FILE, {})
+            zones = zones if zones is not None else load_zones()
+            reference = reference if reference is not None else float(d.get("reference") or 0)
+        df = data.intraday("15m", 5)
+        if not reference and not df.empty:
+            reference = float(df["Close"].iloc[-1])
+        png = render(df, zones, reference, title, marker=marker)
+        telegram.send_photo(png, caption, silent=silent)
+    except Exception as e:  # noqa: BLE001
+        print(f"Chart failed: {e}")
+        if caption:
+            telegram.send(caption, silent=silent)
+
+
 def cmd_plan(send: bool = True) -> DayPlan:
     live = data.now_ist().time() >= MARKET_OPEN
     plan = make_plan(use_live=live)
     note = " (live)" if live else " (prev close; check GIFT Nifty for gap)"
     msg = morning_brief(plan, SETTINGS.alerts_each_side + 1, note)
-    telegram.send(msg) if send else print(msg)
+    if send:
+        send_chart(f"NIFTY 50 levels for {_today()}", zones=plan.zones, reference=plan.reference)
+        telegram.send(msg)
+    else:
+        print(msg)
     return plan
 
 
@@ -125,7 +149,7 @@ class Runtime:
         st = _load(RUNTIME_FILE, {})
         if st.get("date") != _today():
             st = {"date": _today(), "alerts_set": False, "login_sent": False,
-                  "holiday_checked": False, "tg_offset": st.get("tg_offset")}
+                  "holiday_checked": False, "midday_sent": False, "tg_offset": st.get("tg_offset")}
         self.st = st
         sent = _load(SIGNALS_FILE, {})
         self.sent = sent if sent.get("date") == _today() else {"date": _today(), "keys": []}
@@ -189,6 +213,8 @@ class Runtime:
             cmd = text.split()[0].lower() if text else ""
             if cmd == "/levels":
                 cmd_plan()
+            elif cmd == "/chart":
+                send_chart(f"NIFTY 50 · {data.now_ist():%d %b %H:%M}", zones=self.zones)
             elif cmd == "/alerts":
                 self.set_alerts() if self.token else self.send_login_link()
             elif cmd == "/login":
@@ -217,13 +243,17 @@ class Runtime:
         if not len(today) or today.index[-1] == self.last_candle:
             return
         self.last_candle = today.index[-1]
-        for sig in scan(today, self.zones, SETTINGS.break_buffer):
-            if sig.key in self.sent["keys"]:
-                continue
-            self.sent["keys"].append(sig.key)
-            icon = "🟢" if sig.direction == "up" else "🔴"
-            telegram.send(f"{icon} <b>{telegram.esc(sig.kind)}</b>\n{telegram.esc(sig.text)}\n"
-                          "<i>Yahoo data, may lag 1–2 min. Confirm on Kite chart.</i>")
+        new = [sig for sig in scan(today, self.zones, SETTINGS.break_buffer)
+               if sig.key not in self.sent["keys"]]
+        if not new:
+            return
+        self.sent["keys"] += [sig.key for sig in new]
+        parts = [f"{'🟢' if sig.direction == 'up' else '🔴'} <b>{telegram.esc(sig.kind)}</b>\n"
+                 f"{telegram.esc(sig.text)}" for sig in new]
+        caption = "\n\n".join(parts) + "\n<i>Yahoo data, may lag 1–2 min. Confirm on Kite chart.</i>"
+        main = new[0]
+        send_chart(f"NIFTY 50 · {main.kind} · {data.now_ist():%H:%M}", caption, zones=self.zones,
+                   marker={"price": main.price, "direction": main.direction, "text": main.kind})
 
     def run(self, until: time, max_seconds: float | None = None) -> None:
         started = _time.monotonic()
@@ -245,6 +275,9 @@ class Runtime:
                 m = now.minute % 15
                 if (m == 0 and now.second >= 40) or m == 1:
                     self.check_signals(now)
+                if not self.st.get("midday_sent") and now.time() >= time(12, 31):
+                    self.st["midday_sent"] = True
+                    send_chart(f"NIFTY 50 · midday update {now:%H:%M}", zones=self.zones, silent=True)
             self.persist()
             _time.sleep(20)
         self.persist()
