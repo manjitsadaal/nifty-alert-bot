@@ -1,0 +1,70 @@
+name: Nifty bot
+
+on:
+  schedule:
+    - cron: "0 3 * * 1-5"    # 08:30 IST — morning session (brief, login, alerts, signals until 14:10)
+    - cron: "45 8 * * 1-5"   # 14:15 IST — afternoon session (signals until 15:30, cleanup)
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "Which session to run"
+        type: choice
+        options: [morning, afternoon]
+        default: morning
+
+# Runs one session at a time; the afternoon run waits for the morning run to finish.
+concurrency:
+  group: nifty-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+      KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
+      ALERTS_EACH_SIDE: ${{ vars.ALERTS_EACH_SIDE || '4' }}
+      MERGE_DISTANCE: ${{ vars.MERGE_DISTANCE || '15' }}
+      MAX_DISTANCE_PCT: ${{ vars.MAX_DISTANCE_PCT || '2.0' }}
+      BREAK_BUFFER: ${{ vars.BREAK_BUFFER || '5' }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Pick session and date
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then PART="${{ inputs.part }}";
+          elif [ "${{ github.event.schedule }}" = "0 3 * * 1-5" ]; then PART=morning; else PART=afternoon; fi
+          echo "part=$PART" >> "$GITHUB_OUTPUT"
+          echo "day=$(TZ=Asia/Kolkata date +%F)" >> "$GITHUB_OUTPUT"
+
+      # Carries today's state (encrypted Kite token, levels, sent signals) from morning to afternoon.
+      - uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: state-${{ steps.meta.outputs.day }}-${{ github.run_id }}
+          restore-keys: state-${{ steps.meta.outputs.day }}-
+
+      - name: Run bot
+        run: python run.py cloud ${{ steps.meta.outputs.part }}
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: state
+          key: state-${{ steps.meta.outputs.day }}-${{ github.run_id }}

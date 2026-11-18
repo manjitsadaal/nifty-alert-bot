@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Nifty bot – Kite login</title>
+<style>
+  body { font: 17px -apple-system, system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 22px; }
+  .btn { display: block; text-align: center; padding: 16px; margin: 14px 0; border-radius: 12px;
+         background: #229ED9; color: #fff; text-decoration: none; font-weight: 600; border: 0; width: 100%; font-size: 17px; }
+  .btn.alt { background: #eee; color: #222; }
+  code { display: block; word-break: break-all; background: #f4f4f4; padding: 10px; border-radius: 8px; }
+  .err { color: #c62828; }
+</style>
+</head>
+<body>
+<h1>Nifty bot · Kite login</h1>
+<div id="out">Reading login…</div>
+<script>
+  // Runs only in your browser. The token is single-use and expires in minutes.
+  const q = new URLSearchParams(location.search);
+  const token = q.get("request_token");
+  const ok = q.get("status") === "success" && /^[A-Za-z0-9]+$/.test(token || "");
+  const bot = (q.get("bot") || "").replace(/[^A-Za-z0-9_]/g, "");
+  const out = document.getElementById("out");
+  if (!ok) {
+    out.innerHTML = '<p class="err">No valid login found. Send /login to your bot for a fresh link.</p>';
+  } else {
+    let html = "<p>Login successful. Send it to your bot:</p>";
+    if (bot) html += `<a class="btn" href="https://t.me/${bot}?start=${token}">Send to bot</a>`;
+    html += `<button class="btn alt" id="copy">Copy token</button><code>${token}</code>
+             <p>If the button doesn't work, copy the token and paste it into your bot chat.</p>`;
+    out.innerHTML = html;
+    document.getElementById("copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(token); document.getElementById("copy").textContent = "Copied ✓"; } catch (e) {}
+    };
+  }
+</script>
+</body>
+</html>
