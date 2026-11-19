@@ -328,15 +328,29 @@ def cmd_cloud(part: str) -> None:
     if data.now_ist().weekday() >= 5:
         print("Weekend — nothing to do.")
         return
+    now = data.now_ist().time()
+    st = _load(RUNTIME_FILE, {})
+    done_key = f"{part}_started"
+    if st.get("date") == _today() and st.get(done_key):
+        print(f"{part} session already ran today — exiting (duplicate trigger).")
+        return
+    if part == "morning" and now >= time(14, 0):
+        print("Too late for the morning session — exiting.")
+        return
+    if part == "afternoon" and now >= time(15, 35):
+        print("Market closed — exiting.")
+        return
     if part == "morning":
         cmd_plan()
         rt = Runtime(telegram_login=True)
+        rt.st[done_key] = True
         # GitHub caps a job at 6h; stop by 14:10 IST or after 5h40m, whichever is first.
         rt.run(until=time(14, 10), max_seconds=5 * 3600 + 40 * 60)
         if rt.stop:
             cmd_eod()
     else:
         rt = Runtime(telegram_login=True)
+        rt.st[done_key] = True
         rt.run(until=time(15, 31))
         cmd_eod()
 
