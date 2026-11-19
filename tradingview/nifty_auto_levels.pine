@@ -31,6 +31,18 @@ showSignals = input.bool(true, "Show signal markers on chart", group = grpA)
 tgChatId    = input.string("", "Telegram chat id (optional, for webhook)", group = grpA,
      tooltip = "Fill this only if you send alerts to Telegram via webhook. Leave empty for normal TradingView notifications.")
 
+grpI = "Intraday levels (small timeframes)"
+showVWAP    = input.bool(true, "VWAP + bands", group = grpI)
+bandMult    = input.float(1.0, "VWAP band (std dev)", minval = 0.1, step = 0.5, group = grpI)
+showHL      = input.bool(true, "Today's high / low (live)", group = grpI)
+showSwings  = input.bool(true, "Recent swing highs / lows", group = grpI)
+swingLen    = input.int(5, "Swing strength (bars each side)", minval = 2, maxval = 20, group = grpI)
+maxSwings   = input.int(3, "Swings to keep on each side", minval = 1, maxval = 6, group = grpI)
+vwapAlerts  = input.bool(true, "Alert on VWAP cross", group = grpI)
+swingAlerts = input.bool(true, "Alert on swing break", group = grpI)
+swingCol    = input.color(#455a64, "Swing levels", group = grpI)
+vwapCol     = input.color(#ff9800, "VWAP", group = grpI)
+
 grpS = "Style"
 resCol    = input.color(#d32f2f, "Resistance", group = grpS)
 supCol    = input.color(#1565c0, "Support", group = grpS)
@@ -280,8 +292,85 @@ if barstate.isconfirmed and timeframe.isintraday and zPrice.size() > 0
             if sendAlert("ORBD", "ORB BREAKDOWN below " + fmt(orL)) and showSignals
                 label.new(bar_index, high, "ORB▼", style = label.style_label_down, color = orbCol, textcolor = color.white, size = size.tiny)
 
+// ───────────────────────────── Intraday layer
+isIntra = timeframe.isintraday
+[vw, vwUp, vwDn] = ta.vwap(hlc3, newDay, bandMult)
+plot(showVWAP and isIntra ? vw : na, "VWAP", color = vwapCol, linewidth = 2, style = plot.style_linebr)
+plot(showVWAP and isIntra ? vwUp : na, "VWAP upper band", color = color.new(vwapCol, 55), style = plot.style_linebr)
+plot(showVWAP and isIntra ? vwDn : na, "VWAP lower band", color = color.new(vwapCol, 55), style = plot.style_linebr)
+
+var float dHi = na
+var float dLo = na
+if newDay
+    dHi := high
+    dLo := low
+else
+    dHi := math.max(nz(dHi, high), high)
+    dLo := math.min(nz(dLo, low), low)
+plot(showHL and isIntra and not newDay ? dHi : na, "Today's high", color = color.new(resCol, 40), style = plot.style_linebr, linewidth = 1)
+plot(showHL and isIntra and not newDay ? dLo : na, "Today's low", color = color.new(supCol, 40), style = plot.style_linebr, linewidth = 1)
+
+// Swing highs / lows on the chart's own timeframe; broken swings are removed.
+var array<float> shP = array.new<float>()
+var array<line>  shL = array.new<line>()
+var array<label> shT = array.new<label>()
+var array<float> slP = array.new<float>()
+var array<line>  slL = array.new<line>()
+var array<label> slT = array.new<label>()
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+if showSwings and isIntra
+    if not na(ph)
+        shP.push(ph)
+        shL.push(line.new(bar_index - swingLen, ph, bar_index, ph, extend = extend.right, color = swingCol, style = line.style_dotted))
+        shT.push(label.new(bar_index, ph, "SH " + str.tostring(ph, "#"), style = label.style_label_left, color = swingCol, textcolor = color.white, size = size.tiny))
+        if shP.size() > maxSwings
+            shP.shift()
+            shL.shift().delete()
+            shT.shift().delete()
+    if not na(pl)
+        slP.push(pl)
+        slL.push(line.new(bar_index - swingLen, pl, bar_index, pl, extend = extend.right, color = swingCol, style = line.style_dotted))
+        slT.push(label.new(bar_index, pl, "SL " + str.tostring(pl, "#"), style = label.style_label_left, color = swingCol, textcolor = color.white, size = size.tiny))
+        if slP.size() > maxSwings
+            slP.shift()
+            slL.shift().delete()
+            slT.shift().delete()
+    if barstate.isconfirmed
+        if shP.size() > 0
+            for i = shP.size() - 1 to 0
+                if close > shP.get(i)
+                    lvl = shP.get(i)
+                    if swingAlerts
+                        sendAlert("SHB" + str.tostring(lvl, "#"), "BROKE swing high " + fmt(lvl) + " (" + timeframe.period + "m)")
+                    shP.remove(i)
+                    shL.remove(i).delete()
+                    shT.remove(i).delete()
+        if slP.size() > 0
+            for i = slP.size() - 1 to 0
+                if close < slP.get(i)
+                    lvl = slP.get(i)
+                    if swingAlerts
+                        sendAlert("SLB" + str.tostring(lvl, "#"), "BROKE swing low " + fmt(lvl) + " (" + timeframe.period + "m)")
+                    slP.remove(i)
+                    slL.remove(i).delete()
+                    slT.remove(i).delete()
+if barstate.islast
+    for t in shT
+        t.set_x(bar_index + 1)
+    for t in slT
+        t.set_x(bar_index + 1)
+
+// VWAP cross (at most once per direction per hour)
+if vwapAlerts and isIntra and barstate.isconfirmed and not na(vw)
+    hr = str.tostring(hour(time, "Asia/Kolkata"))
+    if close[1] <= vw[1] and close > vw + breakBuf / 2
+        sendAlert("VWU" + hr, "crossed ABOVE VWAP " + fmt(vw))
+    else if close[1] >= vw[1] and close < vw - breakBuf / 2
+        sendAlert("VWD" + hr, "crossed BELOW VWAP " + fmt(vw))
+
 // ───────────────────────────── Info table
-var table info = table.new(position.top_right, 2, 5, bgcolor = color.new(color.white, 15), border_width = 0)
+var table info = table.new(position.top_right, 2, 6, bgcolor = color.new(color.white, 15), border_width = 0)
 if showTable and barstate.islast
     cprType = cprWidth < 0.15 ? "NARROW · trend day likely" : cprWidth > 0.35 ? "WIDE · range day likely" : "normal"
     bias = close > tc ? "Bullish (above CPR)" : close < bc ? "Bearish (below CPR)" : "Neutral (inside CPR)"
@@ -296,3 +385,6 @@ if showTable and barstate.islast
     table.cell(info, 1, 3, "H " + fmt(pwh) + " · L " + fmt(pwl), text_size = size.small, text_halign = text.align_left)
     table.cell(info, 0, 4, "ORB", text_size = size.small, text_halign = text.align_left)
     table.cell(info, 1, 4, na(orH) ? "—" : fmt(orL) + " – " + fmt(orH), text_size = size.small, text_halign = text.align_left)
+    table.cell(info, 0, 5, "VWAP", text_size = size.small, text_halign = text.align_left)
+    table.cell(info, 1, 5, na(vw) or not isIntra ? "—" : fmt(vw) + (close > vw ? "  price above" : "  price below"),
+         text_color = na(vw) ? color.gray : close > vw ? #26a69a : #ef5350, text_size = size.small, text_halign = text.align_left)
