@@ -206,13 +206,14 @@ if newDay
                     zBoxes.push(box.new(bar_index, zHigh.get(i), bar_index + 1, zLow.get(i), extend = extend.right,
                          border_color = color.new(col, 100), bgcolor = color.new(col, 90)))
                 txt = str.tostring(zp, "#") + "  " + zName.get(i) + " " + stars(sc)
-                zLbls.push(label.new(bar_index, zp, txt, style = label.style_label_left, color = color.new(color.white, 100),
-                     textcolor = col, size = size.small))
+                // Filled tag at the right edge so the text never sits on top of the line
+                zLbls.push(label.new(bar_index, zp, txt, style = label.style_label_left, color = col,
+                     textcolor = color.white, size = size.small))
 
 // Keep labels at the right edge of the chart
 if barstate.islast
     for lb in zLbls
-        lb.set_x(bar_index + 3)
+        lb.set_x(bar_index + 4)
 
 // ───────────────────────────── Opening range
 inOrb = not na(time(timeframe.period, orbSess, "Asia/Kolkata"))
@@ -231,9 +232,9 @@ if showORB and orbDone and not na(orH)
     orHLine := line.new(bar_index, orH, bar_index + 1, orH, extend = extend.right, color = orbCol, style = line.style_dashed)
     orLLine := line.new(bar_index, orL, bar_index + 1, orL, extend = extend.right, color = orbCol, style = line.style_dashed)
     label.new(bar_index, orH, "ORB high " + str.tostring(orH, "#"), style = label.style_label_lower_left,
-         color = color.new(color.white, 100), textcolor = orbCol, size = size.tiny)
+         color = orbCol, textcolor = color.white, size = size.tiny)
     label.new(bar_index, orL, "ORB low " + str.tostring(orL, "#"), style = label.style_label_upper_left,
-         color = color.new(color.white, 100), textcolor = orbCol, size = size.tiny)
+         color = orbCol, textcolor = color.white, size = size.tiny)
 if newDay
     orHLine.delete()
     orLLine.delete()
