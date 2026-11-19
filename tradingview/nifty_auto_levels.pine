@@ -18,7 +18,7 @@ showRound   = input.bool(true, "Round numbers", group = grpL)
 roundStep   = input.int(100, "Round number step", minval = 10, group = grpL)
 mergeDist   = input.float(15, "Merge levels closer than (points)", minval = 0, group = grpL)
 maxDistPct  = input.float(1.5, "Only levels within % of today's open", minval = 0.1, group = grpL)
-minScore    = input.int(2, "Minimum zone strength to draw", minval = 1, maxval = 10, group = grpL)
+minScore    = input.int(3, "Minimum zone strength to draw", minval = 1, maxval = 10, group = grpL)
 
 grpO = "Opening range"
 showORB = input.bool(true, "Show opening range (ORB)", group = grpO)
@@ -27,17 +27,18 @@ orbSess = input.session("0915-0945", "Opening range session (IST)", group = grpO
 grpA = "Signals & alerts"
 breakBuf    = input.float(5, "Break buffer (points)", minval = 0, group = grpA)
 wickPct     = input.float(50, "Rejection wick, % of candle", minval = 10, maxval = 95, group = grpA)
-showSignals = input.bool(true, "Show signal markers on chart", group = grpA)
+showSignals = input.bool(false, "Show signal markers on chart", group = grpA)
 tgChatId    = input.string("", "Telegram chat id (optional, for webhook)", group = grpA,
      tooltip = "Fill this only if you send alerts to Telegram via webhook. Leave empty for normal TradingView notifications.")
 
 grpI = "Intraday levels (small timeframes)"
 showVWAP    = input.bool(true, "VWAP + bands", group = grpI)
+showBands   = input.bool(false, "VWAP bands", group = grpI)
 bandMult    = input.float(1.0, "VWAP band (std dev)", minval = 0.1, step = 0.5, group = grpI)
-showHL      = input.bool(true, "Today's high / low (live)", group = grpI)
-showSwings  = input.bool(true, "Recent swing highs / lows", group = grpI)
+showHL      = input.bool(false, "Today's high / low (live)", group = grpI)
+showSwings  = input.bool(false, "Recent swing highs / lows", group = grpI)
 swingLen    = input.int(5, "Swing strength (bars each side)", minval = 2, maxval = 20, group = grpI)
-maxSwings   = input.int(3, "Swings to keep on each side", minval = 1, maxval = 6, group = grpI)
+maxSwings   = input.int(2, "Swings to keep on each side", minval = 1, maxval = 6, group = grpI)
 vwapAlerts  = input.bool(true, "Alert on VWAP cross", group = grpI)
 swingAlerts = input.bool(true, "Alert on swing break", group = grpI)
 swingCol    = input.color(#455a64, "Swing levels", group = grpI)
@@ -217,7 +218,9 @@ if newDay
                 if zHigh.get(i) - zLow.get(i) >= 2
                     zBoxes.push(box.new(bar_index, zHigh.get(i), bar_index + 1, zLow.get(i), extend = extend.right,
                          border_color = color.new(col, 100), bgcolor = color.new(col, 90)))
-                txt = str.tostring(zp, "#") + "  " + zName.get(i) + " " + stars(sc)
+                parts = str.split(zName.get(i), "/")
+                shortName = parts.size() > 2 ? parts.get(0) + "/" + parts.get(1) : zName.get(i)
+                txt = str.tostring(zp, "#") + " " + shortName + " " + stars(sc)
                 // Filled tag at the right edge so the text never sits on top of the line
                 zLbls.push(label.new(bar_index, zp, txt, style = label.style_label_left, color = col,
                      textcolor = color.white, size = size.small))
@@ -233,6 +236,8 @@ var float orH = na
 var float orL = na
 var line orHLine = na
 var line orLLine = na
+var label orHLbl = na
+var label orLLbl = na
 if newDay
     orH := na
     orL := na
@@ -240,16 +245,18 @@ if inOrb and timeframe.isintraday
     orH := na(orH) ? high : math.max(orH, high)
     orL := na(orL) ? low : math.min(orL, low)
 orbDone = timeframe.isintraday and not inOrb and inOrb[1]
-if showORB and orbDone and not na(orH)
-    orHLine := line.new(bar_index, orH, bar_index + 1, orH, extend = extend.right, color = orbCol, style = line.style_dashed)
-    orLLine := line.new(bar_index, orL, bar_index + 1, orL, extend = extend.right, color = orbCol, style = line.style_dashed)
-    label.new(bar_index, orH, "ORB high " + str.tostring(orH, "#"), style = label.style_label_lower_left,
+if showORB and orbDone and not na(orH) and timeframe.in_seconds() <= 900
+    orHLine := line.new(bar_index, orH, bar_index + 1, orH, extend = extend.right, color = color.new(orbCol, 40), style = line.style_dashed)
+    orLLine := line.new(bar_index, orL, bar_index + 1, orL, extend = extend.right, color = color.new(orbCol, 40), style = line.style_dashed)
+    orHLbl := label.new(bar_index, orH, "ORB " + str.tostring(orH, "#"), style = label.style_label_lower_left,
          color = orbCol, textcolor = color.white, size = size.tiny)
-    label.new(bar_index, orL, "ORB low " + str.tostring(orL, "#"), style = label.style_label_upper_left,
+    orLLbl := label.new(bar_index, orL, "ORB " + str.tostring(orL, "#"), style = label.style_label_upper_left,
          color = orbCol, textcolor = color.white, size = size.tiny)
 if newDay
     orHLine.delete()
     orLLine.delete()
+    orHLbl.delete()
+    orLLbl.delete()
 
 // ───────────────────────────── Signals (on closed candles, intraday charts only)
 fmt(float x) => str.tostring(x, "#")
@@ -295,9 +302,10 @@ if barstate.isconfirmed and timeframe.isintraday and zPrice.size() > 0
 // ───────────────────────────── Intraday layer
 isIntra = timeframe.isintraday
 [vw, vwUp, vwDn] = ta.vwap(hlc3, newDay, bandMult)
-plot(showVWAP and isIntra ? vw : na, "VWAP", color = vwapCol, linewidth = 2, style = plot.style_linebr)
-plot(showVWAP and isIntra ? vwUp : na, "VWAP upper band", color = color.new(vwapCol, 55), style = plot.style_linebr)
-plot(showVWAP and isIntra ? vwDn : na, "VWAP lower band", color = color.new(vwapCol, 55), style = plot.style_linebr)
+smallTf = isIntra and timeframe.in_seconds() <= 900
+plot(showVWAP and smallTf ? vw : na, "VWAP", color = vwapCol, linewidth = 2, style = plot.style_linebr, display = display.pane)
+plot(showVWAP and showBands and smallTf ? vwUp : na, "VWAP upper band", color = color.new(vwapCol, 60), style = plot.style_linebr, display = display.pane)
+plot(showVWAP and showBands and smallTf ? vwDn : na, "VWAP lower band", color = color.new(vwapCol, 60), style = plot.style_linebr, display = display.pane)
 
 var float dHi = na
 var float dLo = na
@@ -307,8 +315,8 @@ if newDay
 else
     dHi := math.max(nz(dHi, high), high)
     dLo := math.min(nz(dLo, low), low)
-plot(showHL and isIntra and not newDay ? dHi : na, "Today's high", color = color.new(resCol, 40), style = plot.style_linebr, linewidth = 1)
-plot(showHL and isIntra and not newDay ? dLo : na, "Today's low", color = color.new(supCol, 40), style = plot.style_linebr, linewidth = 1)
+plot(showHL and smallTf and not newDay ? dHi : na, "Today's high", color = color.new(resCol, 40), style = plot.style_linebr, linewidth = 1, display = display.pane)
+plot(showHL and smallTf and not newDay ? dLo : na, "Today's low", color = color.new(supCol, 40), style = plot.style_linebr, linewidth = 1, display = display.pane)
 
 // Swing highs / lows on the chart's own timeframe; broken swings are removed.
 var array<float> shP = array.new<float>()
@@ -319,7 +327,7 @@ var array<line>  slL = array.new<line>()
 var array<label> slT = array.new<label>()
 ph = ta.pivothigh(high, swingLen, swingLen)
 pl = ta.pivotlow(low, swingLen, swingLen)
-if showSwings and isIntra
+if showSwings and smallTf
     if not na(ph)
         shP.push(ph)
         shL.push(line.new(bar_index - swingLen, ph, bar_index, ph, extend = extend.right, color = swingCol, style = line.style_dotted))
@@ -370,7 +378,7 @@ if vwapAlerts and isIntra and barstate.isconfirmed and not na(vw)
         sendAlert("VWD" + hr, "crossed BELOW VWAP " + fmt(vw))
 
 // ───────────────────────────── Info table
-var table info = table.new(position.top_right, 2, 6, bgcolor = color.new(color.white, 15), border_width = 0)
+var table info = table.new(position.top_right, 2, 3, bgcolor = color.new(color.white, 15), border_width = 0)
 if showTable and barstate.islast
     cprType = cprWidth < 0.15 ? "NARROW · trend day likely" : cprWidth > 0.35 ? "WIDE · range day likely" : "normal"
     bias = close > tc ? "Bullish (above CPR)" : close < bc ? "Bearish (below CPR)" : "Neutral (inside CPR)"
@@ -379,12 +387,6 @@ if showTable and barstate.islast
     table.cell(info, 1, 0, str.tostring(cprWidth, "#.##") + "% " + cprType, text_size = size.small, text_halign = text.align_left)
     table.cell(info, 0, 1, "Bias", text_size = size.small, text_halign = text.align_left)
     table.cell(info, 1, 1, bias, text_color = biasCol, text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 0, 2, "Prev day", text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 1, 2, "H " + fmt(pdh) + " · L " + fmt(pdl) + " · C " + fmt(pdc), text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 0, 3, "Prev week", text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 1, 3, "H " + fmt(pwh) + " · L " + fmt(pwl), text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 0, 4, "ORB", text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 1, 4, na(orH) ? "—" : fmt(orL) + " – " + fmt(orH), text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 0, 5, "VWAP", text_size = size.small, text_halign = text.align_left)
-    table.cell(info, 1, 5, na(vw) or not isIntra ? "—" : fmt(vw) + (close > vw ? "  price above" : "  price below"),
+    table.cell(info, 0, 2, "VWAP", text_size = size.small, text_halign = text.align_left)
+    table.cell(info, 1, 2, na(vw) or not smallTf ? "—" : fmt(vw) + (close > vw ? "  price above" : "  price below"),
          text_color = na(vw) ? color.gray : close > vw ? #26a69a : #ef5350, text_size = size.small, text_halign = text.align_left)
