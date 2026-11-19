@@ -4,7 +4,7 @@
 // Levels: previous day H/L/C, classic pivots, CPR, Camarilla, previous week H/L,
 // round numbers. Nearby levels merge into zones; more sources = stronger (more ★).
 // Not trade advice.
-indicator("Nifty Auto Levels", shorttitle = "Auto Levels", overlay = true,
+indicator("Nifty Auto Levels", shorttitle = "AutoLevels", overlay = true,
      max_lines_count = 200, max_labels_count = 300, max_boxes_count = 100)
 
 // ───────────────────────────── Inputs
