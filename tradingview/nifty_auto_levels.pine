@@ -41,17 +41,13 @@ tgChatId    = input.string("", "Telegram chat id (optional, for webhook)", group
      tooltip = "Fill this only if you send alerts to Telegram via webhook. Leave empty for normal TradingView notifications.")
 
 grpI = "Intraday levels (small timeframes)"
-showVWAP    = input.bool(true, "VWAP + bands", group = grpI)
-showBands   = input.bool(false, "VWAP bands", group = grpI)
-bandMult    = input.float(1.0, "VWAP band (std dev)", minval = 0.1, step = 0.5, group = grpI)
 showHL      = input.bool(false, "Today's high / low (live)", group = grpI)
 showSwings  = input.bool(false, "Recent swing highs / lows", group = grpI)
 swingLen    = input.int(5, "Swing strength (bars each side)", minval = 2, maxval = 20, group = grpI)
 maxSwings   = input.int(2, "Swings to keep on each side", minval = 1, maxval = 6, group = grpI)
-vwapAlerts  = input.bool(true, "Alert on VWAP cross", group = grpI)
+vwapAlerts  = input.bool(false, "Alert on VWAP cross", group = grpI)
 swingAlerts = input.bool(true, "Alert on swing break", group = grpI)
 swingCol    = input.color(#455a64, "Swing levels", group = grpI)
-vwapCol     = input.color(#ff9800, "VWAP", group = grpI)
 
 grpS = "Style"
 resCol    = input.color(#d32f2f, "Resistance", group = grpS)
@@ -328,11 +324,9 @@ if not simpleMode and barstate.isconfirmed and timeframe.isintraday and zPrice.s
 
 // ───────────────────────────── Intraday layer
 isIntra = timeframe.isintraday
-[vw, vwUp, vwDn] = ta.vwap(hlc3, newDay, bandMult)
+// VWAP is used only as the hidden trend filter for trade suggestions (not drawn)
+vw = ta.vwap(hlc3, newDay)
 smallTf = isIntra and timeframe.in_seconds() <= 900
-plot(showVWAP and not simpleMode and smallTf ? vw : na, "VWAP", color = vwapCol, linewidth = 2, style = plot.style_linebr, display = display.pane)
-plot(showVWAP and showBands and smallTf ? vwUp : na, "VWAP upper band", color = color.new(vwapCol, 60), style = plot.style_linebr, display = display.pane)
-plot(showVWAP and showBands and smallTf ? vwDn : na, "VWAP lower band", color = color.new(vwapCol, 60), style = plot.style_linebr, display = display.pane)
 
 var float dHi = na
 var float dLo = na
